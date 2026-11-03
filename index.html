@@ -626,7 +626,7 @@ function flickHost(slotId, tagKey, onCta, tapNav=true){
 function tagDoc(slotId, t){
   // Bridge runs before the tag: routes the creative's CTA, taps and render status to this page.
   // ad.js only defines window.__vxOpen if it is missing, so CTA navigation lands here instead of a new tab.
-  const bridge = `(function(){var S=${JSON.stringify(slotId)};function t(m){m.flam=1;m.slot=S;try{parent.postMessage(m,"*")}catch(e){}}
+  const bridge = `/* Phones with hardware AV1 fail to play some Flicks: hide AV1 so the player uses VP9, HEVC or H.264. */(function(){var av=function(s){return /av01|av1/i.test(String(s||''))};try{if(window.VideoDecoder&&VideoDecoder.isConfigSupported){var o=VideoDecoder.isConfigSupported.bind(VideoDecoder);VideoDecoder.isConfigSupported=function(q){return q&&av(q.codec)?Promise.resolve({supported:false,config:q}):o(q)}}}catch(e){}try{var mc=navigator.mediaCapabilities;if(mc&&mc.decodingInfo){var od=mc.decodingInfo.bind(mc);mc.decodingInfo=function(q){return q&&q.video&&av(q.video.contentType)?Promise.resolve({supported:false,smooth:false,powerEfficient:false}):od(q)}}}catch(e){}try{for(var i=sessionStorage.length-1;i>=0;i--){var k=sessionStorage.key(i);if(k&&k.indexOf('vrtx_cap_')===0)sessionStorage.removeItem(k)}}catch(e){}})();(function(){var S=${JSON.stringify(slotId)};function t(m){m.flam=1;m.slot=S;try{parent.postMessage(m,"*")}catch(e){}}
 window.__vxOpen=function(u){t({type:"cta",url:u||""});return true};
 window.ExitApi={exit:function(n,u){t({type:"cta",url:u||""})}};
 document.addEventListener("click",function(e){var a=e.target&&e.target.closest&&e.target.closest("a[target=_blank]");if(a){e.preventDefault();t({type:"cta",url:a.href})}},true);
