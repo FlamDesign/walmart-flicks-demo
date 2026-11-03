@@ -423,8 +423,18 @@ function addToCart(price, name){ cartN++; cartT+=price; $("#cartN").textContent=
 const SLOTS = {};   // slotId -> {onCta, state}
 // Creatives whose on-video button sends no CTA event: a tap inside this box (0-1 of the video) counts as the CTA.
 const CTA_ZONES = { sony:{x0:.74,x1:1,y0:0,y1:.13} };
-function flickHost(slotId, tagKey, onCta){
-  SLOTS[slotId] = { tagKey, onCta, ready:false, lastCta:0, zone:CTA_ZONES[tagKey] };
+// Switch thumbnails inside each creative (0-1 of the video). Taps here switch the video and never click through.
+const THUMB_ZONES = {
+  barkbox:[{x0:0,x1:.28,y0:.06,y1:.92}],
+  levis:[{x0:0,x1:.23,y0:.15,y1:.86}],
+  sony:[{x0:.8,x1:1,y0:.44,y1:.92}]
+};
+const SOUND_ZONE = {x0:.88,x1:1,y0:.88,y1:1};
+const inZone = (z,m) => z && m.x>=z.x0 && m.x<=z.x1 && m.y>=z.y0 && m.y<=z.y1;
+// tapNav: a tap anywhere on the video opens the product page, unless it lands on a thumbnail,
+// toggles sound, or switches the video (checked for a short moment after the tap).
+function flickHost(slotId, tagKey, onCta, tapNav=true){
+  SLOTS[slotId] = { tagKey, onCta, ready:false, lastCta:0, zone:CTA_ZONES[tagKey], tapNav };
   return `<div class="flick" data-slot="${slotId}"><div class="fstate load"></div></div>`;
 }
 function tagDoc(slotId, src){
@@ -439,7 +449,9 @@ function hook(v){if(v.__flam)return;v.__flam=1;
 v.addEventListener("vertex-ready",function(){t({type:"ready"})});
 v.addEventListener("vertex-error",function(e){var d=e.detail||{};t({type:"error",msg:(d.message||d.code||"render error")+""})});
 v.addEventListener("vertex-cta",function(e){var d=e.detail||{};t({type:"cta",url:d.url||""})});
-v.addEventListener("vertex-interaction",function(e){var d=e.detail||{};t({type:"tap",x:+d.x,y:+d.y})});}
+v.addEventListener("vertex-interaction",function(e){var d=e.detail||{};t({type:"tap",x:+d.x,y:+d.y})});
+v.addEventListener("vertex-diff-change",function(){t({type:"switch"})});
+v.addEventListener("vertex-speaker",function(){t({type:"switch"})});}
 new MutationObserver(function(){var v=document.querySelector("vertex-player");if(v)hook(v)}).observe(document.documentElement,{childList:true,subtree:true});
 window.addEventListener("error",function(e){var s=e.target;if(s&&s.tagName==="SCRIPT")t({type:"error",msg:"Could not load "+s.src})},true);})();`;
   return `<!doctype html>
@@ -463,6 +475,7 @@ function mountFlicks(root=document){
     s.timer=setTimeout(()=>{ if(s.ready||s.error) return; const st=host.querySelector(".fstate"); if(st) st.classList.add("hide"); if(!host.querySelector(".fwarn")) host.insertAdjacentHTML("beforeend",`<span class="fwarn">No ready signal from Flick yet</span>`); console.warn("[flicks] no vertex-ready from", id, TAGS[s.tagKey]); },9000);
   });
 }
+function fire(s,url){ const now=Date.now(); if(now-s.lastCta<900) return; s.lastCta=now; s.onCta && s.onCta(url); }
 window.addEventListener("message", e=>{
   const m=e.data; if(!m||m.flam!==1) return;
   const s=SLOTS[m.slot]; if(!s) return;
@@ -471,8 +484,12 @@ window.addEventListener("message", e=>{
   if(m.type==="ready"){ s.ready=true; clearTimeout(s.timer); host.querySelector(".fstate")?.classList.add("hide"); host.querySelector(".fwarn")?.remove(); }
   else if(m.type==="error"){ s.error=true; clearTimeout(s.timer); console.error("[flicks] render error", m.slot, m.msg);
     const st=host.querySelector(".fstate"); st.className="fstate err"; st.innerHTML=`<div><b>Flick failed to load</b>${m.msg.replace(/</g,"&lt;")}<br><br>If this file is open inside a preview window, download it and open it directly in Chrome. Previews block ad scripts.</div>`; }
-  else if(m.type==="cta" || (m.type==="tap" && s.zone && m.x>=s.zone.x0 && m.x<=s.zone.x1 && m.y>=s.zone.y0 && m.y<=s.zone.y1)){
-    const now=Date.now(); if(now-s.lastCta<900) return; s.lastCta=now; s.onCta && s.onCta(m.url); }
+  else if(m.type==="switch"){ clearTimeout(s.pending); s.pending=null; }
+  else if(m.type==="cta" || (m.type==="tap" && inZone(s.zone,m))){ clearTimeout(s.pending); s.pending=null; fire(s,m.url); }
+  else if(m.type==="tap" && s.tapNav){
+    if((THUMB_ZONES[s.tagKey]||[]).some(z=>inZone(z,m)) || inZone(SOUND_ZONE,m)) return;
+    clearTimeout(s.pending); s.pending=setTimeout(()=>{ s.pending=null; fire(s,""); },280);
+  }
 });
 
 /* ---------------- views ---------------- */
@@ -566,7 +583,7 @@ function pdpView(id){
     `<button data-m="${p.main}"><img src="${p.main}" alt=""></button>`,
     ...p.gallery.map(g=>`<button data-m="${g}"><img src="${g}" alt=""></button>`)].join("");
   const ctaToBuy = ()=>{ const b=$("#buy"); b.scrollIntoView({behavior:"smooth",block:"center"}); b.classList.add("pulse"); setTimeout(()=>b.classList.remove("pulse"),1600); };
-  SLOTS[slot]={tagKey:p.flick,onCta:ctaToBuy,ready:false,lastCta:0,zone:CTA_ZONES[p.flick]};
+  SLOTS[slot]={tagKey:p.flick,onCta:ctaToBuy,ready:false,lastCta:0,zone:CTA_ZONES[p.flick],tapNav:false};
   let buy="";
   const nm=p.title.slice(0,30).replace(/'/g,"")+"…";
   if(p.buy==="sony"){
